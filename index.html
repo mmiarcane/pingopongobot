@@ -170,7 +170,7 @@
       try {
         log("BLE cihazı aranıyor...");
         device = await navigator.bluetooth.requestDevice({
-          filters: [{ namePrefix: "Firlatici" }],
+          acceptAllDevices: true,
           optionalServices: [SERVICE_UUID]
         });
 
