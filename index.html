@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Fırlatıcı Ar-Ge Paneli (Raw PWM)</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --accent: #58a6ff;
+      --green: #238636;
+      --red: #da3633;
+      --orange: #d29922;
+    }
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); margin: 0; padding: 16px; font-size: 14px; }
+    .header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    button { cursor: pointer; border: none; border-radius: 6px; font-weight: 600; padding: 10px 14px; transition: opacity 0.2s; font-size: 13px; }
+    button:active { opacity: 0.7; }
+    .btn-connect { background: var(--accent); color: #fff; }
+    .btn-stop { background: var(--red); color: #fff; width: 100%; padding: 14px; font-size: 1rem; margin-top: 12px; }
+    .btn-action { background: var(--green); color: #fff; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .card-title { font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 12px; display: flex; justify-content: space-between; }
+    .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px; }
+    label { font-size: 13px; color: #8b949e; min-width: 75px; }
+    input[type="range"] { flex: 1; accent-color: var(--accent); }
+    input[type="number"] { width: 85px; background: #0d1117; border: 1px solid var(--border); color: #fff; padding: 6px; border-radius: 4px; text-align: center; font-weight: bold; }
+    .unit { font-size: 12px; color: #8b949e; width: 28px; }
+    .console { background: #000; border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-family: monospace; font-size: 11px; height: 110px; overflow-y: auto; color: #7ee787; margin-top: 12px; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #484f58; display: inline-block; margin-right: 6px; }
+    .status-dot.connected { background: #3fb950; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <span id="dot" class="status-dot"></span>
+      <span id="statusText">Bağlantı Yok</span>
+    </div>
+    <button id="btnConnect" class="btn-connect" onclick="toggleConnect()">BLE Bağlan</button>
+  </div>
+
+  <div class="grid">
+    <!-- FIRLATICI MOTORLAR (RAW PWM µs & BURST) -->
+    <div class="card">
+      <div class="card-title">
+        <span>Fırlatma Motorları (BLHeli ESC)</span>
+        <span style="color: var(--orange); font-size: 11px;">1000 - 2000 µs</span>
+      </div>
+
+      <div class="row">
+        <label>Sol PWM</label>
+        <input type="range" id="leftRange" min="1000" max="2000" step="1" value="1000" oninput="syncPWM('left', this.value)">
+        <input type="number" id="leftPwm" min="1000" max="2000" step="5" value="1000" oninput="syncPWM('left', this.value)">
+        <span class="unit">µs</span>
+      </div>
+
+      <div class="row">
+        <label>Sağ PWM</label>
+        <input type="range" id="rightRange" min="1000" max="2000" step="1" value="1000" oninput="syncPWM('right', this.value)">
+        <input type="number" id="rightPwm" min="1000" max="2000" step="5" value="1000" oninput="syncPWM('right', this.value)">
+        <span class="unit">µs</span>
+      </div>
+
+      <hr style="border: 0; border-top: 1px solid var(--border); margin: 12px 0;">
+
+      <div class="row">
+        <label>Açık Süre (Run)</label>
+        <div>
+          <input type="number" id="runMs" value="1200" step="50"> <span class="unit">ms</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <label>Kapalı Süre (Off)</label>
+        <div>
+          <input type="number" id="offMs" value="600" step="50"> <span class="unit">ms</span>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 12px;">
+        <button class="btn-action" style="flex:1" onclick="sendBurstConfig()">Parametreleri Gönder</button>
+        <button id="btnBurstToggle" class="btn-connect" style="flex:1" onclick="toggleBurstRun()">Döngüyü Başlat</button>
+      </div>
+    </div>
+
+    <!-- NEMA 17 TOP BESLEME -->
+    <div class="card">
+      <div class="card-title">
+        <span>Top Besleme (NEMA 17)</span>
+        <span style="color: var(--accent); font-size: 11px;">Step Sürücü</span>
+      </div>
+
+      <div class="row">
+        <label>Hız</label>
+        <input type="range" id="feedRange" min="50" max="2000" value="400" oninput="syncFeedSpeed(this.value)">
+        <input type="number" id="feedSpeed" min="50" max="2000" step="50" value="400" oninput="syncFeedSpeed(this.value)">
+        <span class="unit">ad/s</span>
+      </div>
+
+      <div class="row">
+        <label>Adım Miktarı</label>
+        <div>
+          <input type="number" id="stepAmount" value="200" step="10"> <span class="unit">adım</span>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 24px;">
+        <button class="btn-action" style="flex: 1;" onclick="triggerFeed(false)">Adım Kadar Dön</button>
+        <button id="btnContFeed" class="btn-connect" style="flex: 1;" onclick="toggleContinuousFeed()">Sürekli Dönüş</button>
+      </div>
+
+      <button class="btn-stop" onclick="emergencyStop()">ACİL DURDUR (1000 µs & STEP STOP)</button>
+    </div>
+  </div>
+
+  <div class="console" id="logBox">> Hazır. ESC Aralığı: 1000 µs (Dur) - 2000 µs (Tam Gaz)</div>
+
+  <script>
+    const SERVICE_UUID     = "19b10000-e8f2-537e-4f6c-d104768a1214";
+    const CHAR_BURST_UUID  = "19b10001-e8f2-537e-4f6c-d104768a1214"; 
+    // 9 Bayt Paket: [left_H, left_L, right_H, right_L, runMs_H, runMs_L, offMs_H, offMs_L, runFlag]
+    const CHAR_FEEDER_UUID = "19b10002-e8f2-537e-4f6c-d104768a1214"; 
+    // 5 Bayt Paket: [speed_H, speed_L, steps_H, steps_L, modeFlag]
+
+    let device, server, charBurst, charFeeder;
+    let isBurstRunning = false;
+    let isContinuousFeeding = false;
+
+    function log(msg) {
+      const box = document.getElementById("logBox");
+      box.innerHTML += `\n> ${msg}`;
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function syncPWM(side, val) {
+      document.getElementById(side + "Range").value = val;
+      document.getElementById(side + "Pwm").value = val;
+    }
+
+    function syncFeedSpeed(val) {
+      document.getElementById("feedRange").value = val;
+      document.getElementById("feedSpeed").value = val;
+    }
+
+    async function toggleConnect() {
+      if (device && device.gatt.connected) {
+        device.gatt.disconnect();
+        return;
+      }
+      try {
+        log("BLE cihazı aranıyor...");
+        device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: "Firlatici" }],
+          optionalServices: [SERVICE_UUID]
+        });
+
+        device.addEventListener('gattserverdisconnected', onDisconnected);
+        server = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        charBurst = await service.getCharacteristic(CHAR_BURST_UUID);
+        charFeeder = await service.getCharacteristic(CHAR_FEEDER_UUID);
+
+        document.getElementById("dot").className = "status-dot connected";
+        document.getElementById("statusText").innerText = "Bağlandı: " + device.name;
+        document.getElementById("btnConnect").innerText = "Bağlantıyı Kes";
+        log("Bağlantı başarılı!");
+      } catch (err) {
+        log("Hata: " + err.message);
+      }
+    }
+
+    function onDisconnected() {
+      document.getElementById("dot").className = "status-dot";
+      document.getElementById("statusText").innerText = "Bağlantı Kesildi";
+      document.getElementById("btnConnect").innerText = "BLE Bağlan";
+      log("Bağlantı koptu.");
+    }
+
+    // 9 Baytlık Raw PWM Burst Paketi
+    async function sendBurstConfig(runState = null) {
+      if (!charBurst) return log("Bağlantı yok!");
+      if (runState !== null) isBurstRunning = runState;
+
+      const leftPwm = Math.min(2000, Math.max(1000, parseInt(document.getElementById("leftPwm").value)));
+      const rightPwm = Math.min(2000, Math.max(1000, parseInt(document.getElementById("rightPwm").value)));
+      const runMs = parseInt(document.getElementById("runMs").value);
+      const offMs = parseInt(document.getElementById("offMs").value);
+
+      const buffer = new Uint8Array([
+        (leftPwm >> 8) & 0xFF, leftPwm & 0xFF,
+        (rightPwm >> 8) & 0xFF, rightPwm & 0xFF,
+        (runMs >> 8) & 0xFF, runMs & 0xFF,
+        (offMs >> 8) & 0xFF, offMs & 0xFF,
+        isBurstRunning ? 1 : 0
+      ]);
+
+      await charBurst.writeValue(buffer);
+      log(`ESC -> Sol:${leftPwm}µs Sağ:${rightPwm}µs | Açık:${runMs}ms Kapalı:${offMs}ms [${isBurstRunning ? 'AKTİF' : 'DURGUN'}]`);
+    }
+
+    function toggleBurstRun() {
+      isBurstRunning = !isBurstRunning;
+      const btn = document.getElementById("btnBurstToggle");
+      btn.innerText = isBurstRunning ? "Döngüyü Durdur" : "Döngüyü Başlat";
+      btn.style.background = isBurstRunning ? "var(--orange)" : "var(--accent)";
+      sendBurstConfig(isBurstRunning);
+    }
+
+    async function triggerFeed(continuous = false) {
+      if (!charFeeder) return log("Bağlantı yok!");
+      const speed = parseInt(document.getElementById("feedSpeed").value);
+      const steps = parseInt(document.getElementById("stepAmount").value);
+      const mode = continuous ? 1 : 0;
+
+      const buffer = new Uint8Array([
+        (speed >> 8) & 0xFF, speed & 0xFF,
+        (steps >> 8) & 0xFF, steps & 0xFF,
+        mode
+      ]);
+
+      await charFeeder.writeValue(buffer);
+      log(`NEMA17 -> Hız:${speed} ad/s | Adım:${steps} | Mod:${mode === 1 ? 'Sürekli' : 'Tek Tetik'}`);
+    }
+
+    function toggleContinuousFeed() {
+      isContinuousFeeding = !isContinuousFeeding;
+      const btn = document.getElementById("btnContFeed");
+      if (isContinuousFeeding) {
+        btn.innerText = "Sürekliyi Durdur";
+        btn.style.background = "var(--red)";
+        triggerFeed(true);
+      } else {
+        btn.innerText = "Sürekli Dönüş";
+        btn.style.background = "var(--accent)";
+        stopFeed();
+      }
+    }
+
+    async function stopFeed() {
+      if (!charFeeder) return;
+      const buffer = new Uint8Array([0, 0, 0, 0, 2]);
+      await charFeeder.writeValue(buffer);
+      log("NEMA17 durduruldu.");
+    }
+
+    async function emergencyStop() {
+      isBurstRunning = false;
+      isContinuousFeeding = false;
+      document.getElementById("btnBurstToggle").innerText = "Döngüyü Başlat";
+      document.getElementById("btnContFeed").innerText = "Sürekli Dönüş";
+      document.getElementById("btnBurstToggle").style.background = "var(--accent)";
+      document.getElementById("btnContFeed").style.background = "var(--accent)";
+      
+      syncPWM('left', 1000);
+      syncPWM('right', 1000);
+
+      await sendBurstConfig(false);
+      await stopFeed();
+      log("ACİL DURDURMA -> ESC'lere 1000µs gönderildi!");
+    }
+  </script>
+</body>
+</html>
