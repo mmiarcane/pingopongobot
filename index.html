@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Fırlatıcı Ar-Ge Paneli (Raw PWM)</title>
+  <title>Fırlatıcı Ar-Ge Paneli</title>
   <style>
     :root {
       --bg: #0d1117;
@@ -14,6 +14,7 @@
       --green: #238636;
       --red: #da3633;
       --orange: #d29922;
+      --purple: #8957e5;
     }
     * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background-color: var(--bg); color: var(--text); margin: 0; padding: 16px; font-size: 14px; }
@@ -23,6 +24,7 @@
     .btn-connect { background: var(--accent); color: #fff; }
     .btn-stop { background: var(--red); color: #fff; width: 100%; padding: 14px; font-size: 1rem; margin-top: 12px; }
     .btn-action { background: var(--green); color: #fff; }
+    .btn-jog { background: var(--purple); color: #fff; }
     .grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
     @media (min-width: 768px) { .grid { grid-template-columns: 1fr 1fr; } }
     .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
@@ -31,7 +33,7 @@
     label { font-size: 13px; color: #8b949e; min-width: 75px; }
     input[type="range"] { flex: 1; accent-color: var(--accent); }
     input[type="number"] { width: 85px; background: #0d1117; border: 1px solid var(--border); color: #fff; padding: 6px; border-radius: 4px; text-align: center; font-weight: bold; }
-    .unit { font-size: 12px; color: #8b949e; width: 28px; }
+    .unit { font-size: 12px; color: #8b949e; width: 32px; }
     .console { background: #000; border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-family: monospace; font-size: 11px; height: 110px; overflow-y: auto; color: #7ee787; margin-top: 12px; }
     .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #484f58; display: inline-block; margin-right: 6px; }
     .status-dot.connected { background: #3fb950; }
@@ -42,7 +44,7 @@
   <div class="header">
     <div>
       <span id="dot" class="status-dot"></span>
-      <span id="statusText">Bağlantı Yok</span>
+      <span id="statusText">Bağlantı Yok (Deadman Aktif)</span>
     </div>
     <button id="btnConnect" class="btn-connect" onclick="toggleConnect()">BLE Bağlan</button>
   </div>
@@ -91,44 +93,48 @@
       </div>
     </div>
 
-    <!-- NEMA 17 TOP BESLEME -->
+    <!-- NEMA 17 TOP BESLEME (17HS4401 + A4988 FULL STEP) -->
     <div class="card">
       <div class="card-title">
-        <span>Top Besleme (NEMA 17)</span>
-        <span style="color: var(--accent); font-size: 11px;">Step Sürücü</span>
+        <span>Top Besleme (17HS4401 - Full Step)</span>
+        <span style="color: var(--accent); font-size: 11px;">1 Adım = 1.8° | 40 Adım = 72°</span>
       </div>
 
       <div class="row">
         <label>Hız</label>
-        <input type="range" id="feedRange" min="50" max="2000" value="400" oninput="syncFeedSpeed(this.value)">
-        <input type="number" id="feedSpeed" min="50" max="2000" step="50" value="400" oninput="syncFeedSpeed(this.value)">
+        <input type="range" id="feedRange" min="20" max="1000" value="200" oninput="syncFeedSpeed(this.value)">
+        <input type="number" id="feedSpeed" min="20" max="1000" step="20" value="200" oninput="syncFeedSpeed(this.value)">
         <span class="unit">ad/s</span>
       </div>
 
       <div class="row">
-        <label>Adım Miktarı</label>
+        <label>Özel Adım</label>
         <div>
-          <input type="number" id="stepAmount" value="200" step="10"> <span class="unit">adım</span>
+          <input type="number" id="stepAmount" value="40" step="1" oninput="updateDegreeText()"> 
+          <span class="unit" id="degText">(72.0°)</span>
         </div>
       </div>
 
-      <div style="display: flex; gap: 8px; margin-top: 24px;">
-        <button class="btn-action" style="flex: 1;" onclick="triggerFeed(false)">Adım Kadar Dön</button>
-        <button id="btnContFeed" class="btn-connect" style="flex: 1;" onclick="toggleContinuousFeed()">Sürekli Dönüş</button>
+      <!-- İKİ ÖZEL TETİK SWITCH'İ -->
+      <div style="display: flex; gap: 8px; margin-top: 14px;">
+        <button class="btn-jog" style="flex: 1;" onclick="triggerCustomStep(1)">+1 Adım (1.8° Hizala)</button>
+        <button class="btn-action" style="flex: 1;" onclick="triggerCustomStep(parseInt(document.getElementById('stepAmount').value))">Hedef Kadar Dön</button>
       </div>
 
-      <button class="btn-stop" onclick="emergencyStop()">ACİL DURDUR (1000 µs & STEP STOP)</button>
+      <div style="display: flex; gap: 8px; margin-top: 8px;">
+        <button id="btnContFeed" class="btn-connect" style="width: 100%;" onclick="toggleContinuousFeed()">Sürekli Dönüş Başlat</button>
+      </div>
+
+      <button class="btn-stop" onclick="emergencyStop()">ACİL DURDUR (TÜM SİSTEM)</button>
     </div>
   </div>
 
-  <div class="console" id="logBox">> Hazır. ESC Aralığı: 1000 µs (Dur) - 2000 µs (Tam Gaz)</div>
+  <div class="console" id="logBox">> Hazır. Full Step Modu: 40 adım = 72° (1 Top). BLE koparsa Deadman devreye girer.</div>
 
   <script>
     const SERVICE_UUID     = "19b10000-e8f2-537e-4f6c-d104768a1214";
     const CHAR_BURST_UUID  = "19b10001-e8f2-537e-4f6c-d104768a1214"; 
-    // 9 Bayt Paket: [left_H, left_L, right_H, right_L, runMs_H, runMs_L, offMs_H, offMs_L, runFlag]
     const CHAR_FEEDER_UUID = "19b10002-e8f2-537e-4f6c-d104768a1214"; 
-    // 5 Bayt Paket: [speed_H, speed_L, steps_H, steps_L, modeFlag]
 
     let device, server, charBurst, charFeeder;
     let isBurstRunning = false;
@@ -148,6 +154,12 @@
     function syncFeedSpeed(val) {
       document.getElementById("feedRange").value = val;
       document.getElementById("feedSpeed").value = val;
+    }
+
+    function updateDegreeText() {
+      const steps = parseInt(document.getElementById("stepAmount").value) || 0;
+      const deg = (steps * 1.8).toFixed(1);
+      document.getElementById("degText").innerText = `(${deg}°)`;
     }
 
     async function toggleConnect() {
@@ -179,12 +191,15 @@
 
     function onDisconnected() {
       document.getElementById("dot").className = "status-dot";
-      document.getElementById("statusText").innerText = "Bağlantı Kesildi";
+      document.getElementById("statusText").innerText = "Bağlantı Kesildi (Deadman Aktif)";
       document.getElementById("btnConnect").innerText = "BLE Bağlan";
-      log("Bağlantı koptu.");
+      isBurstRunning = false;
+      isContinuousFeeding = false;
+      document.getElementById("btnBurstToggle").innerText = "Döngüyü Başlat";
+      document.getElementById("btnContFeed").innerText = "Sürekli Dönüş Başlat";
+      log("UYARI: Bağlantı koptu! Uno R4 -> R3'e Deadman Stop gönderdi.");
     }
 
-    // 9 Baytlık Raw PWM Burst Paketi
     async function sendBurstConfig(runState = null) {
       if (!charBurst) return log("Bağlantı yok!");
       if (runState !== null) isBurstRunning = runState;
@@ -214,39 +229,40 @@
       sendBurstConfig(isBurstRunning);
     }
 
-    async function triggerFeed(continuous = false) {
+    async function triggerCustomStep(stepsToMove) {
       if (!charFeeder) return log("Bağlantı yok!");
       const speed = parseInt(document.getElementById("feedSpeed").value);
-      const steps = parseInt(document.getElementById("stepAmount").value);
-      const mode = continuous ? 1 : 0;
-
       const buffer = new Uint8Array([
         (speed >> 8) & 0xFF, speed & 0xFF,
-        (steps >> 8) & 0xFF, steps & 0xFF,
-        mode
+        (stepsToMove >> 8) & 0xFF, stepsToMove & 0xFF,
+        0 // Mod 0: Adım Kadar Dön
       ]);
-
       await charFeeder.writeValue(buffer);
-      log(`NEMA17 -> Hız:${speed} ad/s | Adım:${steps} | Mod:${mode === 1 ? 'Sürekli' : 'Tek Tetik'}`);
+      log(`NEMA17 Tetik -> ${stepsToMove} Adım (${(stepsToMove * 1.8).toFixed(1)}°) @ ${speed} ad/s`);
     }
 
-    function toggleContinuousFeed() {
+    async function toggleContinuousFeed() {
+      if (!charFeeder) return log("Bağlantı yok!");
       isContinuousFeeding = !isContinuousFeeding;
       const btn = document.getElementById("btnContFeed");
+      const speed = parseInt(document.getElementById("feedSpeed").value);
+
       if (isContinuousFeeding) {
         btn.innerText = "Sürekliyi Durdur";
         btn.style.background = "var(--red)";
-        triggerFeed(true);
+        const buffer = new Uint8Array([(speed >> 8) & 0xFF, speed & 0xFF, 0, 0, 1]); // Mod 1: Sürekli
+        await charFeeder.writeValue(buffer);
+        log(`NEMA17 -> Sürekli Dönüş Başladı (${speed} ad/s)`);
       } else {
-        btn.innerText = "Sürekli Dönüş";
+        btn.innerText = "Sürekli Dönüş Başlat";
         btn.style.background = "var(--accent)";
-        stopFeed();
+        await stopFeed();
       }
     }
 
     async function stopFeed() {
       if (!charFeeder) return;
-      const buffer = new Uint8Array([0, 0, 0, 0, 2]);
+      const buffer = new Uint8Array([0, 0, 0, 0, 2]); // Mod 2: Durdur
       await charFeeder.writeValue(buffer);
       log("NEMA17 durduruldu.");
     }
@@ -255,7 +271,7 @@
       isBurstRunning = false;
       isContinuousFeeding = false;
       document.getElementById("btnBurstToggle").innerText = "Döngüyü Başlat";
-      document.getElementById("btnContFeed").innerText = "Sürekli Dönüş";
+      document.getElementById("btnContFeed").innerText = "Sürekli Dönüş Başlat";
       document.getElementById("btnBurstToggle").style.background = "var(--accent)";
       document.getElementById("btnContFeed").style.background = "var(--accent)";
       
@@ -264,7 +280,7 @@
 
       await sendBurstConfig(false);
       await stopFeed();
-      log("ACİL DURDURMA -> ESC'lere 1000µs gönderildi!");
+      log("ACİL DURDURMA -> Tüm motorlar kesildi!");
     }
   </script>
 </body>
